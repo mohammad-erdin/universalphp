@@ -1,0 +1,1 @@
+docker build -f Dockerfile.alpine -t ghcr.io/mohammad-erdin/docker-php:8.4-frankenphp-alpine .

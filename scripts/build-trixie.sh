@@ -1,0 +1,1 @@
+docker build -f Dockerfile.trixie -t ghcr.io/mohammad-erdin/docker-php:8.4-frankenphp-trixie .
