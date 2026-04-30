@@ -17,27 +17,16 @@ FROM golang:${GOLANG_VERSION} AS golang-src
 FROM node:${NODE_MAJOR}-trixie AS node-src
 
 ####################
-# Main build + runtime stage
+# Builder stage (compile/install everything heavy for cache efficiency)
 ####################
-FROM php:${PHP_VERSION}-zts-${BASE_OS_VERSION}
+FROM php:${PHP_VERSION}-zts-${BASE_OS_VERSION} AS build
 
 # Re-declare ARGs needed in this stage
 ARG FRANKENPHP_VERSION='1.12.2'
 ARG PNPM_VERSION='10'
 ARG REPOSITORY_BUILD_VERSION='dev'
 ARG BUILD_DEPENDENCY_PACKAGES='cmake curl git libargon2-dev libbrotli-dev libcap2-bin libcurl4-openssl-dev libonig-dev libreadline-dev libsodium-dev libsqlite3-dev libssl-dev libxml2-dev mailcap xz-utils zlib1g-dev ca-certificates cron'
-ARG DEPENDENCY_PACKAGES='procps libstdc++6 zip'
 ARG DEPENDENCY_PHP_EXTENSIONS='opcache pcntl pdo_mysql pdo_pgsql redis zip'
-
-LABEL org.opencontainers.image.title="serversideup/php (frankenphp)" \
-    org.opencontainers.image.description="Supercharge your PHP experience. Based off the official PHP images, serversideup/php includes pre-configured PHP extensions and settings for enhanced performance and security. Optimized for Laravel and WordPress." \
-    org.opencontainers.image.url="https://serversideup.net/open-source/docker-php/" \
-    org.opencontainers.image.source="https://github.com/serversideup/docker-php" \
-    org.opencontainers.image.documentation="https://serversideup.net/open-source/docker-php/docs/" \
-    org.opencontainers.image.vendor="ServerSideUp" \
-    org.opencontainers.image.authors="Jay Rogers (@jaydrogers)" \
-    org.opencontainers.image.version="${REPOSITORY_BUILD_VERSION}" \
-    org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 # Copy helper scripts first so they are available in all subsequent RUN steps
 COPY --chmod=755 src/common/ /
@@ -113,9 +102,45 @@ RUN git clone --depth 1 --branch v${FRANKENPHP_VERSION} \
 ####################
 # Install runtime packages and PHP extensions
 ####################
-RUN docker-php-serversideup-dep-install-debian "${DEPENDENCY_PACKAGES}"; \
-    docker-php-serversideup-install-php-ext-installer; \
+RUN docker-php-serversideup-install-php-ext-installer; \
     install-php-extensions ${DEPENDENCY_PHP_EXTENSIONS}
+
+####################
+# Final runtime stage (production only)
+####################
+FROM php:${PHP_VERSION}-zts-${BASE_OS_VERSION}
+
+# Re-declare ARGs needed in this stage
+ARG FRANKENPHP_VERSION='1.12.2'
+ARG REPOSITORY_BUILD_VERSION='dev'
+ARG DEPENDENCY_PACKAGES='procps libstdc++6 ca-certificates cron libpq5 libzip5 liblz4-1'
+
+LABEL org.opencontainers.image.title="serversideup/php (frankenphp)" \
+    org.opencontainers.image.description="Supercharge your PHP experience. Based off the official PHP images, serversideup/php includes pre-configured PHP extensions and settings for enhanced performance and security. Optimized for Laravel and WordPress." \
+    org.opencontainers.image.url="https://serversideup.net/open-source/docker-php/" \
+    org.opencontainers.image.source="https://github.com/serversideup/docker-php" \
+    org.opencontainers.image.documentation="https://serversideup.net/open-source/docker-php/docs/" \
+    org.opencontainers.image.vendor="ServerSideUp" \
+    org.opencontainers.image.authors="Jay Rogers (@jaydrogers)" \
+    org.opencontainers.image.version="${REPOSITORY_BUILD_VERSION}" \
+    org.opencontainers.image.licenses="GPL-3.0-or-later"
+
+# Copy helper scripts and minimal runtime artifacts
+COPY --chmod=755 src/common/ /
+COPY --chmod=755 src/utilities-webservers/ /
+COPY --from=build /usr/local/bin/frankenphp /usr/local/bin/frankenphp
+COPY --from=build /usr/bin/composer /usr/local/bin/composer
+COPY --from=build /usr/local/bin/node /usr/local/bin/node
+COPY --from=build /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=build /usr/local/lib/libwatcher-c.so* /usr/local/lib/
+COPY --from=build /usr/local/lib/php/extensions /usr/local/lib/php/extensions
+COPY --from=build /usr/local/etc/php/conf.d /usr/local/etc/php/conf.d
+
+RUN set -eux; \
+    docker-php-serversideup-dep-install-debian "${DEPENDENCY_PACKAGES}"; \
+    command -v cron; \
+    command -v ps; \
+    ldconfig
 
 ####################
 # Copy application config
@@ -147,9 +172,11 @@ RUN set -eux; \
     echo "${FRANKENPHP_VERSION}" > /etc/serversideup-php-frankenphp-version; \
     mkdir -p /composer; \
     chown -R www-data:www-data /composer; \
+    ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
+    ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
     ln -sf ../lib/node_modules/pnpm/bin/pnpm.cjs /usr/local/bin/pnpm; \
     ln -sf ../lib/node_modules/pnpm/bin/pnpx.cjs /usr/local/bin/pnpx; \
-    chmod 4755 /usr/sbin/cron; \
+    if command -v cron >/dev/null 2>&1; then chmod 4755 "$(command -v cron)"; fi; \
     docker-php-serversideup-set-file-permissions --owner www-data:www-data --service frankenphp
 
 ENV APP_BASE_DIR=/var/www/html \

@@ -1,114 +1,168 @@
-# Task: Validate cron in Trixie Container
+# Task: Production-Ready Trixie Image (Multi-Stage + Runtime Validation)
 
 ## Goal
-Confirm that `cron` (Debian's cron daemon) is running inside `test-trixie:latest` and that the system crontab defined in `src/variations/frankenphp/etc/periodic/root-trixie` is active. Specifically, the catch-all job:
+Refactor and validate the Trixie image so it is production-ready with a strict multi-stage strategy:
 
-```
-*       *       *       *       *       root    date | tee /tmp/roots.txt
-```
-
-…should produce `/tmp/roots.txt` with content inside a live container.
+1. Use at least 2 stages (`build`, `final`)
+2. Keep heavy build/install work in `build` for caching efficiency
+3. Copy only runtime binaries/assets into `final`
+4. Significantly reduce final image size
+5. Validate runtime behavior in a temporary container:
+   - `frankenphp` works
+   - `node`, `npm`, `pnpm` work
+   - `cron` runs and executes the catch-all job in `root-trixie`
 
 ---
 
 ## Image
-`test-trixie:latest`
+- Candidate: `test-trixie:latest`
+- Baseline: `ghcr.io/mohammad-erdin/docker-php:8.4-frankenphp-trixie`
 
 ---
 
-## Plan
+## Implementation Summary
 
-### Step 1 — Start a detached container
-Run `test-trixie:latest` as a long-lived container so cron has time to fire at least once (cron minimum resolution is 1 minute):
+### `Dockerfile.trixie` Refactor
+
+Applied a true multi-stage design:
+
+1. `build` stage
+- Installs build dependencies and compilers
+- Builds FrankenPHP via `xcaddy`
+- Installs PHP extensions
+- Installs Node toolchain and pnpm
+
+2. `final` stage
+- Starts from clean `php:8.5-zts-trixie`
+- Installs only runtime packages
+- Copies only runtime artifacts from `build`:
+  - `/usr/local/bin/frankenphp`
+  - `/usr/local/bin/composer`
+  - `/usr/local/bin/node`
+  - `/usr/local/lib/node_modules`
+  - `/usr/local/lib/php/extensions`
+  - `/usr/local/etc/php/conf.d`
+  - `/usr/local/lib/libwatcher-c.so*`
+- Keeps Trixie cron wiring (`/etc/crontab` + entrypoint script)
+
+### Runtime Dependency Set (Final Stage)
+
+Final runtime package set in Trixie:
+
+- `procps`
+- `libstdc++6`
+- `ca-certificates`
+- `cron`
+- `libpq5`
+- `libzip5`
+- `liblz4-1`
+
+### Build Guard Added
+
+To prevent false-green builds, final stage dependency installation now validates runtime commands during build:
+
+- `command -v cron`
+- `command -v ps`
+
+If either binary is missing, the build fails immediately.
+
+---
+
+## Validation Commands Used
+
+### Build
 
 ```sh
-docker run -d --name cron-test test-trixie:latest
+docker build --build-arg FINAL_RUNTIME_PACKAGES_VERSION=2026-05-01c -f Dockerfile.trixie -t test-trixie:latest .
 ```
 
-> The default `ENTRYPOINT` / `CMD` starts `frankenphp`, which in turn should start cron via the serversideup entrypoint scripts.
+### Run temporary container
 
-### Step 2 — Wait ≥ 60 seconds
-Wait at least 60 s for the first `* * * * *` tick to execute. Use `sleep 65` (or watch in a loop).
-
-### Step 3 — Exec into the container
 ```sh
-docker exec -it cron-test bash
+docker run -d --name cron-test-trixie test-trixie:latest
 ```
 
-### Step 4 — Verify inside the container
-Check two things:
+### Verify runtime tools
 
-1. **cron process is running:**
-   ```sh
-   ps aux | grep cron
-   ```
-   Expected: a `cron` process owned by root.
-
-2. **Output file exists and has content:**
-   ```sh
-   cat /tmp/roots.txt
-   ```
-   Expected: a date string, e.g. `Thu May  1 12:34:00 UTC 2026`.
-
-### Step 5 — Cleanup
 ```sh
-docker rm -f cron-test
+docker exec cron-test-trixie sh -lc 'frankenphp version'
+docker exec cron-test-trixie sh -lc 'node --version && npm --version && pnpm --version'
+docker exec cron-test-trixie sh -lc 'mkdir -p /tmp/npm-init && cd /tmp/npm-init && npm init -y'
+docker exec cron-test-trixie sh -lc 'mkdir -p /tmp/pnpm-init && cd /tmp/pnpm-init && pnpm init </dev/null'
+```
+
+### Verify cron daemon and job output
+
+```sh
+docker exec -u root cron-test-trixie sh -lc 'command -v cron && command -v ps && ps aux | grep [c]ron'
+docker exec -u root cron-test-trixie sh -lc 'cat /etc/crontab'
+
+# Wait/poll for cron tick to generate /tmp/roots.txt
+docker exec -u root cron-test-trixie sh -lc '
+  for i in $(seq 1 16); do
+    if [ -s /tmp/roots.txt ]; then cat /tmp/roots.txt; exit 0; fi
+    sleep 5
+  done
+  exit 1
+'
+```
+
+### Confirm recurring execution
+
+```sh
+docker exec -u root cron-test-trixie sh -lc '
+  first=$(cat /tmp/roots.txt)
+  for i in $(seq 1 16); do
+    now=$(cat /tmp/roots.txt)
+    [ "$now" != "$first" ] && echo "$now" && exit 0
+    sleep 5
+  done
+  exit 1
+'
+```
+
+### Cleanup
+
+```sh
+docker rm -f cron-test-trixie
 ```
 
 ---
 
 ## Validation Result: ✅ PASSED
 
-### Fixes Applied to `Dockerfile.trixie`
-
-1. **Added missing COPY for entrypoint scripts** — `src/variations/frankenphp/etc/entrypoint.d/` → `/etc/entrypoint.d/` (provides `10-cron.sh` which starts `cron`)
-2. **Added missing COPY for crontab** — `src/variations/frankenphp/etc/periodic/root-trixie` → `/etc/crontab`
-3. **Set setuid on `cron`** — `chmod 4755 /usr/sbin/cron` in the setup RUN step, so the `www-data` user can invoke it and it runs as root
-
-### Final Checks
+### Tooling Checks
 
 | Check | Result |
 |---|---|
-| `cron` in `ps aux` | ✅ PID 24, running as root |
-| `/tmp/roots.txt` exists | ✅ Present |
-| `/tmp/roots.txt` content | ✅ `Thu Apr 30 18:35:01 UTC 2026` |
-| File updates each minute | ✅ Confirmed (18:35:01 → 18:36:01) |
+| `frankenphp version` | ✅ `v2.11.2` |
+| `node --version` | ✅ `v24.15.0` |
+| `npm --version` | ✅ `11.12.1` |
+| `pnpm --version` | ✅ `10.33.2` |
+| `npm init -y` | ✅ `package.json` created |
+| `pnpm init` | ✅ `package.json` created |
 
-### Files Modified
-- `Dockerfile.trixie` — three additions described above; image rebuilt as `test-trixie:latest`
+### Cron Checks
 
-### Fix Required in `Dockerfile.trixie`
+| Check | Result |
+|---|---|
+| `cron` binary present | ✅ `/usr/sbin/cron` |
+| `ps` binary present | ✅ `/usr/bin/ps` |
+| `cron` in process list | ✅ running as `root` |
+| `/tmp/roots.txt` generated | ✅ `Thu Apr 30 19:28:01 UTC 2026` |
+| `/tmp/roots.txt` updates each minute | ✅ `19:28:01` -> `19:29:02` |
 
-Add the following two `COPY` instructions (alongside the existing `frankenphp/` copy):
+### Size Reduction
 
-```dockerfile
-COPY --chmod=755 src/variations/frankenphp/etc/entrypoint.d/ /etc/entrypoint.d/
-COPY src/variations/frankenphp/etc/periodic/root-trixie /etc/crontab
-```
+| Image | Size |
+|---|---|
+| `ghcr.io/mohammad-erdin/docker-php:8.4-frankenphp-trixie` | `4.19GB` |
+| `test-trixie:latest` | `804MB` |
 
-> Note: Debian cron reads `/etc/crontab` (not `/etc/crontabs/root`), and entries require a user field — already present in `root-trixie`.
+Reduction: ~`80.8%` smaller final image.
 
 ---
 
-## Fix Implementation Plan
+## Files Modified
 
-### Phase 1 — Patch & Rebuild
-1. Add the two `COPY` lines to `Dockerfile.trixie` (after the existing `frankenphp/` copy).
-2. Rebuild: `docker build -f Dockerfile.trixie -t test-trixie .`
-
-### Phase 2 — Validate in fresh container
-1. `docker run -d --name cron-test test-trixie:latest`
-2. `sleep 65`
-3. `docker exec -u root cron-test ps aux | grep cron` — expect a `cron` process
-4. `docker exec -u root cron-test cat /tmp/roots.txt` — expect a date string
-
-### Phase 3 — Fix inside container if still failing
-- If `cron` is missing: exec in and manually run `cron`, watch `/tmp/roots.txt` appear; then identify why the entrypoint didn't fire.
-- If crontab is wrong: inspect `/etc/crontab` inside the container, fix the source file and rebuild.
-
-### Phase 4 — Persist & Final Rebuild
-Once validated, the two `COPY` lines are already in `Dockerfile.trixie`.
-Final rebuild confirms the persisted image is correct.
-
-### Phase 5 — Cleanup
-`docker rm -f cron-test`
+- `Dockerfile.trixie` (multi-stage production refactor + runtime dependency hardening)
