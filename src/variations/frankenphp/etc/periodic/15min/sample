@@ -1,0 +1,2 @@
+#!/bin/sh
+# date | tee /tmp/test-15min.txt

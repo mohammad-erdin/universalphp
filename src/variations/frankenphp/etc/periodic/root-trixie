@@ -1,0 +1,15 @@
+# Debian/Trixie system-wide crontab
+# This file is copied to /etc/crontab on Trixie images.
+# It includes SHELL and PATH headers and requires a user field for each job.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# min   hour    day     month   weekday user    command
+*/2    *       *       *       *       root    run-parts /etc/periodic/15min
+0       *       *       *       *       root    run-parts /etc/periodic/hourly
+0       2       *       *       *       root    run-parts /etc/periodic/daily
+0       3       *       *       6       root    run-parts /etc/periodic/weekly
+0       5       1       *       *       root    run-parts /etc/periodic/monthly
+
+# Add more cron scripts here
+*       *       *       *       *       root    date | tee /tmp/roots.txt

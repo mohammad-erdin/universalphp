@@ -1,0 +1,15 @@
+# Alpine root crontab
+# This file is copied to /etc/crontabs/root on Alpine images.
+# It uses Alpine crond syntax and does not require a username field.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# min   hour    day     month   weekday  command
+*/2     *       *       *       *        run-parts /etc/periodic/15min
+0       *       *       *       *        run-parts /etc/periodic/hourly
+0       2       *       *       *        run-parts /etc/periodic/daily
+0       3       *       *       6        run-parts /etc/periodic/weekly
+0       5       1       *       *        run-parts /etc/periodic/monthly
+
+# Add more cron scripts here
+*       *       *       *       *        /bin/date | /usr/bin/tee /tmp/roots.txt
