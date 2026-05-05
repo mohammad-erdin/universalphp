@@ -1,101 +1,63 @@
-# UniversalPHP - Production-Ready Docker PHP Images
+# Universal FrankenPHP Docker Images
 
-**Supercharge your PHP experience.** UniversalPHP builds optimized Docker images based on the official PHP images with pre-configured PHP extensions, development tools, and security settings for enhanced performance.
+**UniversalPHP for FrankenPHP.** Optimized Docker images based on the official PHP image.
 
-> Built with support for **FrankenPHP**, optimized for **Laravel** and **WordPress**
+> Built only for **FrankenPHP**, optimized for **Laravel** and **WordPress**.  
+> Simplified/modified from https://github.com/serversideup/docker-php
 
 ## Features
 
 - ✅ **Multiple OS Variants**: Alpine, Trixie (Debian), and standard builds
 - ✅ **FrankenPHP Support**: High-performance async PHP runtime with Caddy built-in
 - ✅ **Pre-configured Extensions**: Common PHP extensions optimized for Laravel/WordPress
-- ✅ **Development Tools**: Node.js, npm, pnpm, Composer included
 - ✅ **Security Focused**: OWASP secure headers, SSL/TLS configuration
 - ✅ **Automated Cron Support**: Built-in cron daemon with task scheduling
-- ✅ **Multi-stage Builds**: Optimized image sizes with minimal final layers
-- ✅ **Production Ready**: Health checks and runtime validation
 
-## Project Structure
+### Using `docker-compose.yml`
 
-```
-.
-├── Dockerfile                    # Main production Dockerfile
-├── Dockerfile.alpine            # Alpine Linux variant (lightweight)
-├── Dockerfile.trixie            # Debian Trixie variant (feature-rich)
-├── scripts/                     # Build and deployment scripts
-│   ├── build-alpine.sh         # Build Alpine image
-│   ├── build-trixie.sh         # Build Trixie image
-│   └── push.sh                 # Push images to registry
-├── src/
-│   ├── common/                 # Shared configuration across all variants
-│   │   ├── etc/entrypoint.d/   # Container startup scripts
-│   │   └── usr/local/          # PHP config, executables, and utilities
-│   ├── utilities-webservers/   # Web server configurations
-│   │   └── etc/entrypoint.d/   # SSL/TLS setup scripts
-│   └── variations/
-│       └── frankenphp/         # FrankenPHP-specific configuration
-│           ├── etc/periodic/   # Cron job definitions
-│           └── etc/frankenphp/ # Caddy and FrankenPHP configuration
-└── README.md                    # This file
+```yaml
+services:
+  frankenphp:
+    image: ghcr.io/mohammad-erdin/docker-php:8.5-frankenphp-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SSL_MODE: full
+      LOG_LEVEL: info
+      AUTO_HTTPS: on
+    volumes:
+      - ./:/var/www/html
 ```
 
-## Building Images
+Notes:
+- Use `ghcr.io/mohammad-erdin/docker-php:<PHP_VERSION>-frankenphp-<os>`.
+- Supported `--os` values are `alpine` and `trixie`.
+- The published tag format is `8.5-frankenphp-alpine` or `8.5-frankenphp-trixie`.
 
-### Build All Variants
+### Using `docker run`
 
 ```bash
-bash scripts/build-alpine.sh && bash scripts/build-trixie.sh
+docker run --rm \
+  -p 80:80 \
+  -p 443:443 \
+  -e SSL_MODE=full \
+  -e LOG_LEVEL=info \
+  -e AUTO_HTTPS=on \
+  -v "$PWD":/var/www/html \
+  ghcr.io/mohammad-erdin/docker-php:8.5-frankenphp-alpine
 ```
 
-### Build Specific Variant
+Tips:
+- Replace `alpine` with `trixie` for the Debian-based build.
+- Add additional app environment variables as needed for Laravel or WordPress.
 
-```bash
-# Alpine (lightweight, ~150MB)
-bash scripts/build-alpine.sh
+## Published Image Package
 
-# Trixie (full-featured, ~400MB)
-bash scripts/build-trixie.sh
+Prebuilt container images are published on GitHub Container Registry:
+https://github.com/mohammad-erdin/universalphp/pkgs/container/docker-php
 
-# Standard (traditional PHP)
-docker build -f Dockerfile -t your-registry/universalphp:latest .
-```
-
-### Build with Custom Arguments
-
-```bash
-docker build \
-  --build-arg PHP_VERSION=8.4 \
-  --build-arg NODE_MAJOR=22 \
-  -f Dockerfile.alpine \
-  -t my-php:8.4-alpine .
-```
-
-## Push to Registry
-
-```bash
-bash scripts/push.sh
-```
-
-## Key Configurations
-
-### Included PHP Extensions
-
-Pre-configured extensions optimized for Laravel and WordPress:
-- PDO MySQL/PostgreSQL
-- GD (image processing)
-- ZIP (compression)
-- JSON, cURL, XML
-- OPcache (performance)
-- And more...
-
-See [src/common/usr/local/etc/php/conf.d/serversideup-docker-php.ini](src/common/usr/local/etc/php/conf.d/serversideup-docker-php.ini) for full list.
-
-### Development Tools
-
-- **Composer** - PHP dependency manager
-- **Node.js** - JavaScript runtime
-- **npm/pnpm** - Package managers
-- **Cron** - Task scheduling (FrankenPHP variant)
+Use the package page to browse available tags, choose the correct `PHP_VERSION` and OS variant, and pull the matching image directly.
 
 ### FrankenPHP Variant Features
 
@@ -106,35 +68,6 @@ The FrankenPHP variant includes:
 - **Log Levels** - Customizable logging (debug, info, warn, error, etc.)
 - **Auto-HTTPS** - Automatic certificate management options
 - **Scheduled Tasks** - Cron job support via periodic scripts
-
-Configure via environment variables:
-```bash
-docker run \
-  -e SSL_MODE=full \
-  -e LOG_LEVEL=info \
-  -e AUTO_HTTPS=on \
-  your-registry/universalphp:frankenphp
-```
-
-## Entrypoint Sequence
-
-Containers execute initialization scripts in order:
-1. `0-container-info.sh` - Display container information
-2. `1-log-output-level.sh` - Configure logging
-3. `5-generate-ssl.sh` - Generate SSL certificates
-4. `10-cron.sh` - Start cron daemon (FrankenPHP only)
-5. `50-laravel-automations.sh` - Laravel-specific setup
-6. Main application startup
-
-## Health Checks
-
-FrankenPHP variant includes health check scripts:
-- `healthcheck-horizon` - Laravel Horizon queue worker
-- `healthcheck-octane` - Laravel Octane server
-- `healthcheck-queue` - Queue worker status
-- `healthcheck-reverb` - WebSocket server
-- `healthcheck-schedule` - Task scheduler
-- `healthcheck-cron` - Cron daemon
 
 ## Container Initialization
 
