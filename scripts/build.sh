@@ -8,7 +8,7 @@ PHP_VERSION='8.5'
 OS_VERSION='alpine'
 PLATFORM='linux/amd64'
 PUSH=false
-BUILDX_CONTAINER_BUILDER='universalphp-builder-container'
+BUILDX_CONTAINER_BUILDER='universalphp-builder'
 
 ####################
 # Parse arguments
