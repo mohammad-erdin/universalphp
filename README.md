@@ -39,12 +39,13 @@ Notes:
 ### Building locally
 
 ```bash
-./scripts/build.sh --php=8.5 --os=alpine
+./scripts/build.sh --php=8.4 --os=alpine --platform=linux/amd64,linux/arm64 --push
 ```
 
-- This script now defaults to `--platform=linux/amd64`.
-- If `docker buildx` is available, it will use `docker buildx build --platform linux/amd64 --load`.
-- Override the platform when needed with `--platform=linux/amd64` or another valid platform string.
+- This script defaults to `--platform=linux/amd64`.
+- Use `--push` to build and push a multi-platform manifest when `docker buildx` is available.
+- If `docker buildx` is available and `--platform` is a single architecture, it will load the image locally.
+- For multi-platform builds, set `--platform=linux/amd64,linux/arm64`.
 
 ### Using `docker run`
 
