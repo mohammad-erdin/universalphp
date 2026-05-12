@@ -34,6 +34,17 @@ Notes:
 - Use `ghcr.io/mohammad-erdin/docker-php:<PHP_VERSION>-frankenphp-<os>`.
 - Supported `--os` values are `alpine` and `trixie`.
 - The published tag format is `8.5-frankenphp-alpine` or `8.5-frankenphp-trixie`.
+- Local builds default to `linux/amd64` so the pushed image can be pulled on CPU `linux/amd64` hosts.
+
+### Building locally
+
+```bash
+./scripts/build.sh --php=8.5 --os=alpine
+```
+
+- This script now defaults to `--platform=linux/amd64`.
+- If `docker buildx` is available, it will use `docker buildx build --platform linux/amd64 --load`.
+- Override the platform when needed with `--platform=linux/amd64` or another valid platform string.
 
 ### Using `docker run`
 
